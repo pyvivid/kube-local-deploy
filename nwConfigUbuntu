@@ -1,0 +1,90 @@
+#!/bin/bash
+set -e
+
+### VARIABLES ###
+NEW_HOSTNAME="Ub22-L02"
+NEW_IP="192.168.1.182/24"
+GATEWAY="192.168.1.1"
+DNS="8.8.8.8"
+IFACE="ens18"
+
+NETPLAN_DIR="/etc/netplan"
+NETPLAN_FILE="${NETPLAN_DIR}/00-installer-config.yaml"
+CLOUD_NETPLAN="${NETPLAN_DIR}/50-cloud-init.yaml"
+
+echo "===== Configuring hostname and IP for Ub22-L02 ====="
+
+### 1. Disable cloud-init network control ###
+echo "Disabling cloud-init network configuration..."
+mkdir -p /etc/cloud/cloud.cfg.d
+echo "network: {config: disabled}" > /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+
+### 2. Remove cloud-init netplan file if present ###
+if [ -f "$CLOUD_NETPLAN" ]; then
+  echo "Removing cloud-init netplan file..."
+  rm -f "$CLOUD_NETPLAN"
+fi
+
+### 3. Create clean netplan configuration ###
+echo "Creating netplan configuration..."
+cat > "$NETPLAN_FILE" <<EOF
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ${IFACE}:
+      match:
+        name: ${IFACE}
+      set-name: ${IFACE}
+      dhcp4: no
+      addresses:
+        - ${NEW_IP}
+      nameservers:
+        addresses: [${DNS}]
+      routes:
+        - to: default
+          via: ${GATEWAY}
+EOF
+
+### 4. Secure netplan permissions ###
+chmod 600 "$NETPLAN_FILE"
+chown root:root "$NETPLAN_FILE"
+
+### 5. Set hostname ###
+echo "Setting hostname..."
+hostnamectl set-hostname "$NEW_HOSTNAME"
+echo "$NEW_HOSTNAME" > /etc/hostname
+
+# Update /etc/hosts
+if grep -q "^127.0.1.1" /etc/hosts; then
+  sed -i "s/^127.0.1.1.*/127.0.1.1 ${NEW_HOSTNAME}/" /etc/hosts
+else
+  echo "127.0.1.1 ${NEW_HOSTNAME}" >> /etc/hosts
+fi
+
+### 6. Reset systemd-networkd runtime state ###
+echo "Resetting networkd runtime state..."
+rm -rf /run/systemd/network/*
+
+### 7. Enable & restart networking services ###
+systemctl enable systemd-networkd
+systemctl enable systemd-resolved
+systemctl restart systemd-networkd
+systemctl restart systemd-resolved
+
+### 8. Apply netplan ###
+echo "Applying netplan..."
+netplan generate
+netplan apply
+
+### 9. Bring interface up explicitly ###
+ip link set ${IFACE} up
+
+### 10. Final confirmation ###
+echo "Hostname set to: $(hostname)"
+echo "IP set to: ${NEW_IP}"
+
+### 11. Reboot ###
+echo "Rebooting system in 5 seconds..."
+sleep 5
+reboot
