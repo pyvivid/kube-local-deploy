@@ -1,0 +1,28 @@
+# This must update the k8s.conf file
+# We are setting up the internal network for the K8S to communicate with each other
+# Do this on all the instances within the K8s
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+
+# Config of Kernel Parameters. Do this on all instances
+cat <<EOF | sudo tee /etc/sysctl.d/kubernetes.conf
+net.bridge.bridge-nf-call-iptables=1
+net.bridge.bridge-nf-call-ip6tables=1
+net.ipv4.ip_forward=1
+EOF
+
+# Verify the above config was set correctly. Do this on all instances
+sudo sysctl --system
+
+# verify that the ip forward was set correctly. Verify on all instances
+sysctl net.ipv4.ip_forward
+
+# Install Containerization Engine on all the instances. Exec on all 3 instances
+sudo apt install -y containerd
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+# Change the value of False to True
+SystemCgroup = False | True
