@@ -26,3 +26,27 @@ sudo mkdir -p /etc/containerd
 containerd config default | sudo tee /etc/containerd/config.toml
 # Change the value of False to True
 SystemCgroup = False | True
+
+# Restart Containerd Daemons on each of the instances
+sudo systemctl restart containerd
+sudo systemctl enable containerd
+
+# Test the status of the Containerd Application on each of the instances
+systemctl status containerd
+
+# Install the Ca-certs and transports for each of the instances
+sudo apt install -y apt-transport-https ca-certificates curl gpg
+
+# Add the Kubernetes repository on each of the instances
+sudo mkdir -p /etc/apt/keyrings
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key \
+| sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' \
+| sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+# Update the OS after the adding of the Ketyrings for Kubernetes
+sudo apt update -y
+
+# Install 
