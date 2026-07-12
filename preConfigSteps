@@ -1,7 +1,8 @@
 # This must update the k8s.conf file
 # We are setting up the internal network for the K8S to communicate with each other
 # Do this on all the instances within the K8s
-cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+cat <<EOF | sudo tee /etc/modules-l
+oad.d/k8s.conf
 overlay
 br_netfilter
 EOF
@@ -49,4 +50,77 @@ echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.
 # Update the OS after the adding of the Ketyrings for Kubernetes
 sudo apt update -y
 
-# Install 
+# Install Kubelet, Kubeadm and Kubectl 
+sudo apt install -y kubelet kubeadm kubectl
+
+# disable the automatic updates of Kubelet, Kubeadm and Kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+# INitialize the Control Plane on the Master Node Only
+sudo kubeadm init \
+--pod-network-cidr=10.244.0.0/16
+
+# Configure Kubectl to connect the the control plane
+mkdir -p $HOME/.kube
+
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+# At this stage the Kubectl get nodes will work, but will show as "NotReady". 
+# Also we will see that the coredns pods are not running, because we dont have a Networking Component. 
+# INstall Flannel for the overlay network
+# You may skip Flannel and use CALICO or CILIUM also. CILIUM over Flannel/CALICO
+
+kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+
+# By now the nodes in the cluster must be "Ready"
+
+# If your flannel network fails to start, use the following commands to re-initalize. ***Only if it fails. 
+kubeadm init \
+  --apiserver-advertise-address=192.168.1.141 \
+  --pod-network-cidr=10.244.0.0/16
+
+# ***Sometimes, based on the logged in user, we will need to set the context. 
+# If ur root, run the below
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# Install Cilium Now:
+curl -L --remote-name https://github.com/cilium/cilium-cli/releases/latest/download/cilium-linux-amd64.tar.gz
+tar xzvf cilium-linux-amd64.tar.gz
+sudo mv cilium /usr/local/bin/
+
+# After downloading Cilium, we need toinstall it. 
+cilium install
+
+### Output will be as below:
+root@k8s-master01:/home/uroot01# cilium install
+ℹ️  Using Cilium version 1.19.4
+🔮 Auto-detected cluster name: kubernetes
+🔮 Auto-detected kube-proxy has been installed
+root@k8s-master01:/home/uroot01#
+###
+
+# Check Cilium Status
+cilium status
+
+# Once ur cilium is good. Now add the Worker nodes into the cluster. Fetch the token command 
+kubeadm token create --print-join-command
+# The above command will give an output like below: 
+kubeadm join 192.168.1.141:6443 --token p59j6j.1rssmbfhuad85u7z --discovery-token-ca-cert-hash sha256:7425a03fa2203eea7483a0e2d218469670dcb12689b6bb4f6a8d4aa409897833
+# run the above command in each of the worker nodes, that you want to bring into the cluster.
+
+# Then on the master node, check if the nodes are added into the cluster
+kubectl get nodes
+
+# With this the setup must be complete, you may proceed for test deployments
+
+# You may have done all the kubernetes installations in the root user. To access the kubectl as root user run the following command
+# in your terminal before you can actually run the kubectl commands. 
+export KUBECONFIG=/etc/kubernetes/admin.conf
+
+# If you are logged in as a specific user like uroot, then run the following commands to control the kubernetes cluster
+mkdir -p ~/.kube
+sudo cp /etc/kubernetes/admin.conf ~/.kube/config
+sudo chown $(id -u):$(id -g) ~/.kube/config
+
